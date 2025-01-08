@@ -1,0 +1,14 @@
+import React from "react";
+import OrgChart from "./OrgChart";
+
+function App() {
+  return (
+    <div className="App">
+      <h1>My Organization</h1>
+      {/* dataUrl に /orgData.json を指定 */}
+      <OrgChart dataUrl="/orgData.json" />
+    </div>
+  );
+}
+
+export default App;

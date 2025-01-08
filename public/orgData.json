@@ -1,0 +1,48 @@
+{
+    "id": 0,
+    "name": "CEO",
+    "title": "Chief Executive Officer",
+    "children": [
+        {
+            "id": 1,
+            "name": "VP1",
+            "title": "Vice President",
+            "children": [
+                {
+                    "id": 2,
+                    "name": "M1",
+                    "title": "Manager",
+                    "children": [
+                        {
+                            "id": 3,
+                            "name": "E1",
+                            "title": "Engineer"
+                        },
+                        {
+                            "id": 4,
+                            "name": "E2",
+                            "title": "Engineer"
+                        }
+                    ]
+                },
+                {
+                    "id": 5,
+                    "name": "M2",
+                    "title": "Manager",
+                    "children": [
+                        {
+                            "id": 6,
+                            "name": "E3",
+                            "title": "Engineer"
+                        },
+                        {
+                            "id": 7,
+                            "name": "E4",
+                            "title": "Engineer"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

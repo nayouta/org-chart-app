@@ -1,0 +1,13 @@
+import React from 'react';
+import OrgChart from './OrgChart';
+
+function App() {
+  return (
+    <div className="App">
+      <h1>Organization Chart (react-d3-tree)</h1>
+      <OrgChart />
+    </div>
+  );
+}
+
+export default App;

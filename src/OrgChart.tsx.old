@@ -1,0 +1,278 @@
+// src/OrgChart.tsx
+import React, { useEffect, useState } from "react";
+import { OrgNode } from "./types";
+
+/** 各ノードを描画するときに使う幅・高さなどの設定 */
+const NODE_WIDTH = 240; // ノードの幅
+const NODE_HEIGHT = 60; // ノードの高さ
+const HORIZONTAL_SPACING = 40; // 兄弟ノード同士の横方向スペース
+const VERTICAL_SPACING = 100; // 親子ノード間の縦方向スペース
+
+/** レイアウト後のノード情報 */
+interface PositionedNode {
+  node: OrgNode; // ノードのデータ
+  x: number; // ノードの左上 x 座標
+  y: number; // ノードの左上 y 座標
+  width: number; // ノード幅
+  children: PositionedNode[]; // 子ノードたち
+  parent?: PositionedNode; // 親ノード(描画時に線を引くのに使う)
+}
+
+/**
+ * ツリーに対して座標を割り当てる再帰関数
+ *
+ * ざっくりとしたアルゴリズム:
+ * - 子ノードたちを再帰的にレイアウト（x, width を算出）
+ * - 子ノードを横方向に並べる
+ * - 親ノードの x は子ノードたちの中央に来るように調整
+ * - 親ノードの幅は子ノードたち全体の幅を計算
+ */
+function layoutTree(node: OrgNode): PositionedNode {
+  // 子がなければ leaf ノードとして幅は固定
+  if (!node.children || node.children.length === 0) {
+    return {
+      node,
+      x: 0,
+      y: 0,
+      width: NODE_WIDTH,
+      children: [],
+    };
+  }
+
+  // 再帰的に子ノードのレイアウトを計算
+  const childLayouts = node.children.map(layoutTree);
+
+  // 子ノードを横方向に並べるため、合計幅を計算
+  let totalWidth = 0;
+  childLayouts.forEach((c, i) => {
+    // 子ノードの x 座標を設定
+    c.x = totalWidth;
+    totalWidth += c.width;
+    // 兄弟との間にスペースを追加 (最後の子以外)
+    if (i < childLayouts.length - 1) {
+      totalWidth += HORIZONTAL_SPACING;
+    }
+  });
+
+  // 親ノードの中心が子ノードのグループ中央に来るように x を調整
+  const childrenGroupCenter =
+    childLayouts[0].x + (totalWidth - childLayouts[0].x) / 2;
+  const parentX = childrenGroupCenter - NODE_WIDTH / 2;
+
+  // 親ノードの width は子ノードたち全体の幅と同等にする
+  const parentWidth = Math.max(NODE_WIDTH, totalWidth);
+
+  // 親ノードを返却
+  return {
+    node,
+    x: parentX,
+    y: 0,
+    width: parentWidth,
+    children: childLayouts,
+  };
+}
+
+/**
+ * ツリーに対して top, left を再設定しながら、子ノードを y 方向に VERTICAL_SPACING だけ下げる
+ * かつ、親を参照できるように parent をセット
+ */
+function positionTree(
+  root: PositionedNode,
+  offsetX: number,
+  offsetY: number,
+  parent?: PositionedNode
+) {
+  // このノードの絶対座標を計算
+  root.x += offsetX;
+  root.y += offsetY;
+  root.parent = parent;
+
+  // 子ノードの位置を更新
+  root.children.forEach((child) => {
+    // 親ノードよりさらに下へ配置するため、y を足す
+    positionTree(child, root.x, root.y + NODE_HEIGHT + VERTICAL_SPACING, root);
+  });
+}
+
+/** ノードを描画するコンポーネント */
+const NodeBox: React.FC<{ pnode: PositionedNode }> = ({ pnode }) => {
+  const { node, x, y } = pnode;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+        border: "1px solid black",
+        textAlign: "center",
+        backgroundColor: "white",
+        boxSizing: "border-box",
+      }}
+    >
+      {/* name */}
+      <div
+        style={{
+          borderBottom: "1px solid black",
+          height: "50%",
+          lineHeight: `${NODE_HEIGHT / 2 - 2}px`,
+        }}
+      >
+        {node.name}
+      </div>
+      {/* title */}
+      <div style={{ height: "50%", lineHeight: `${NODE_HEIGHT / 2 - 2}px` }}>
+        {node.title}
+      </div>
+    </div>
+  );
+};
+
+/** 親と子を結ぶ線を描画するための SVG path を生成 */
+function createPath(
+  parentX: number,
+  parentY: number,
+  childX: number,
+  childY: number
+) {
+  // 親ノードの下中央
+  const startX = parentX + NODE_WIDTH / 2;
+  const startY = parentY + NODE_HEIGHT;
+
+  // 子ノードの上中央
+  const endX = childX + NODE_WIDTH / 2;
+  const endY = childY;
+
+  // 垂直に少し下がり、その後子ノード側へ向かって曲線 (ベジェ曲線)
+  // コントロールポイントを少し離して曲線にする:
+  // たとえば (startX, startY + 30) → (endX, endY - 30)
+  const curveOffset = 30;
+  const path = `M ${startX} ${startY}
+    C ${startX} ${startY + curveOffset},
+      ${endX} ${endY - curveOffset},
+      ${endX} ${endY}`;
+
+  return path;
+}
+
+/** 全ノードに対応する線をまとめて描画するコンポーネント */
+const Connections: React.FC<{ root: PositionedNode }> = ({ root }) => {
+  // DFS で全ノードを走査し、親→子 の線を SVG Path で描画
+  const lines: JSX.Element[] = [];
+
+  function traverse(node: PositionedNode) {
+    node.children.forEach((child) => {
+      // 親→子 の線
+      lines.push(
+        <path
+          key={`${node.node.id}-${child.node.id}`}
+          d={createPath(node.x, node.y, child.x, child.y)}
+          stroke="black"
+          strokeWidth={2}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      );
+      traverse(child);
+    });
+  }
+
+  traverse(root);
+
+  // SVG は全体をカバーするようにする（実運用では計算で可変にする）
+  // 今回は簡単のため「3000 x 3000」にしておき、全体を相対的にカバー
+  return (
+    <svg
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        pointerEvents: "none",
+        width: "3000px",
+        height: "3000px",
+      }}
+    >
+      {lines}
+    </svg>
+  );
+};
+
+interface OrgChartProps {
+  dataUrl: string;
+}
+
+/**
+ * 組織図全体を描画するコンポーネント
+ */
+const OrgChart: React.FC<OrgChartProps> = ({ dataUrl }) => {
+  const [rootLayout, setRootLayout] = useState<PositionedNode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(dataUrl)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
+        }
+        return await res.json();
+      })
+      .then((jsonData: OrgNode) => {
+        // 1. ツリーに対して座標割り当て（相対）
+        const layouted = layoutTree(jsonData);
+
+        // 2. ページ中央にトップノードが来るように positionTree で最終座標を確定
+        //    ここではウィンドウ幅が仮に 1000px と想定し、その中央付近が 500px としている
+        //    実際は画面サイズで計算したり、リサイズにも対応するなら別途ロジックが必要
+        const screenCenterX = 500; // 仮の中央
+        positionTree(layouted, screenCenterX, 50); // 50px 下にずらす
+
+        setRootLayout(layouted);
+      })
+      .catch((err) => {
+        setError(err.message);
+      });
+  }, [dataUrl]);
+
+  if (error) {
+    return <div style={{ color: "red" }}>エラーが発生しました: {error}</div>;
+  }
+
+  if (!rootLayout) {
+    return <div>Loading...</div>;
+  }
+
+  // ここでは overflow は隠さず、スクロールできるようにしておく
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "2000px",
+        background: "#f4f4f4",
+      }}
+    >
+      {/* 親→子 接続線 (SVG) */}
+      <Connections root={rootLayout} />
+
+      {/* ノード本体の描画 (再帰ではなく DFS 的に回収) */}
+      {renderNodes(rootLayout)}
+    </div>
+  );
+};
+
+/** root から DFS で辿ってすべてのノードの NodeBox を描画する */
+function renderNodes(root: PositionedNode): JSX.Element[] {
+  const elems: JSX.Element[] = [];
+
+  function traverse(node: PositionedNode) {
+    elems.push(<NodeBox key={node.node.id} pnode={node} />);
+    node.children.forEach(traverse);
+  }
+
+  traverse(root);
+  return elems;
+}
+
+export default OrgChart;

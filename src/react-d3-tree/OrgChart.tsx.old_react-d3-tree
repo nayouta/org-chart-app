@@ -1,0 +1,140 @@
+// src/OrgChart.tsx
+import React, { useEffect, useState } from "react";
+// react-d3-tree に型定義がないため無視
+// @ts-ignore
+import Tree from "react-d3-tree";
+import { NodeData } from "./types";
+
+/**
+ * ノードを描画する際にカスタムでSVG要素を生成する関数。
+ * nodeDatum: ノードデータ (name, title, children...)
+ * toggleNode: サブツリーの開閉を切り替える関数 (デフォルト機能)
+ */
+function renderCustomNodeElement(rd3tProps: {
+  nodeDatum: NodeData;
+  toggleNode: () => void;
+}) {
+  const { nodeDatum, toggleNode } = rd3tProps;
+  // ノードの幅・高さ（適宜調整してください）
+  const NODE_WIDTH = 120;
+  const NODE_HEIGHT = 60;
+
+  // react-d3-tree の座標はノード中央を (x, y) としているため、
+  // 矩形の中心が (0,0) になるように <g> 内で座標をシフトします
+  const rectX = -NODE_WIDTH / 2;
+  const rectY = -NODE_HEIGHT / 2;
+
+  return (
+    <g>
+      {/* 黒枠の長方形 */}
+      <rect
+        x={rectX}
+        y={rectY}
+        width={NODE_WIDTH}
+        height={NODE_HEIGHT}
+        stroke="black"
+        fill="white"
+        onClick={toggleNode} // デフォルト機能: クリックでサブツリーを開閉
+      />
+      {/* 上下 2 行テキスト (name / title) */}
+      <text
+        x={0}
+        y={rectY + NODE_HEIGHT * 0.35} // name は上寄り
+        textAnchor="middle"
+        alignmentBaseline="middle"
+        style={{ fontSize: "12px", fontWeight: "bold" }}
+      >
+        {nodeDatum.name}
+      </text>
+      {nodeDatum.title && (
+        <text
+          x={0}
+          y={rectY + NODE_HEIGHT * 0.7} // title は下寄り
+          textAnchor="middle"
+          alignmentBaseline="middle"
+          style={{ fontSize: "10px" }}
+        >
+          {nodeDatum.title}
+        </text>
+      )}
+    </g>
+  );
+}
+
+/**
+ * 線の描画をカスタマイズするための関数。
+ * 親ノード中心 → 子ノード中心 を結ぶ座標が引数に渡る。
+ * 角を丸くし、やや曲線で結ぶようにする。(ベジェ曲線)
+ */
+function customPathFunc(linkDatum: any /* LinkDatum */, orientation: string) {
+  // react-d3-tree のデフォルト座標:
+  //  - 親ノードの中心: source.x, source.y
+  //  - 子ノードの中心: target.x, target.y
+  const { source, target } = linkDatum;
+
+  // 親ノードの下側(中心より下に半分) へ少しオフセット
+  const parentX = source.x;
+  const parentY = source.y + 30; // 半径や適宜調整
+  // 子ノードの上側(中心より上に半分) へ少しオフセット
+  const childX = target.x;
+  const childY = target.y - 30;
+
+  // 中央同士を結ぶベジェ曲線を定義 (Cコマンド)
+  // 途中で少し離れた制御点を指定し、角を丸くする
+  const curveOffset = 50; // 曲線の強さ
+  return `
+    M ${parentX},${parentY}
+    C ${parentX},${parentY + curveOffset},
+      ${childX},${childY - curveOffset},
+      ${childX},${childY}
+  `;
+}
+
+const OrgChart: React.FC = () => {
+  const [data, setData] = useState<NodeData | null>(null);
+
+  useEffect(() => {
+    fetch("/orgData.json")
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
+        }
+        return res.json();
+      })
+      .then((jsonData: NodeData) => {
+        setData(jsonData);
+      })
+      .catch((err) => {
+        console.error("Error fetching orgData.json:", err);
+      });
+  }, []);
+
+  if (!data) {
+    return <div>Loading...</div>;
+  }
+
+  // react-d3-tree は root ノードが複数ある可能性を考慮し、配列で受け取ります
+  const treeData = [data];
+
+  return (
+    <div style={{ width: "100%", height: "800px", background: "#f4f4f4" }}>
+      <Tree
+        data={treeData}
+        orientation="vertical" // ツリーを縦方向（上→下）に
+        translate={{ x: 500, y: 50 }} // 仮でページ中央付近に
+        zoom={0.8} // ズームの初期値
+        pathFunc={customPathFunc} // 線の描画をカスタム
+        renderCustomNodeElement={renderCustomNodeElement} // ノード描画をカスタム
+        enableLegacyTransitions={true} // アニメーション有効化(任意)
+        // 兄弟ノード・非兄弟ノードの間隔を微調整
+        separation={{ siblings: 1, nonSiblings: 2 }}
+        // デフォルトの linkClassName は適宜CSSで上書き可能
+        // linkClassName="my-link"
+        // ノードのドラッグ移動を有効化する場合は以下
+        // draggable={true}
+      />
+    </div>
+  );
+};
+
+export default OrgChart;
